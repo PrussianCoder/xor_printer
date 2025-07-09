@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>XOR Printer</title>
+<style>
+  body { font-family: sans-serif; }
+  textarea { width: 600px; height: 80px; }
+  table { border-collapse: collapse; margin-top: 10px; table-layout: fixed; width: 800px; height: 800px; }
+  td { width: 80px; height: 80px; text-align: center; border: 1px solid #ccc; font-size: 14px; }
+  .current { outline: 2px solid red; }
+</style>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.min.js"></script>
+</head>
+<body>
+<h1>XOR Printer ビジュアライザ</h1>
+<div>
+  <h2>使い方</h2>
+  <ul>
+    <li><strong>Seed</strong> を変更するとランダムな盤面を生成できます。</li>
+    <li>必要に応じて問題インスタンスを <strong>Input</strong> 欄に貼り付けます。</li>
+    <li>ソルバーの出力を <strong>Output</strong> 欄に貼り付けます。</li>
+    <li>スライダーや数値欄でステップを進められます。</li>
+    <li><strong>Play</strong> で指定した <strong>Speed</strong> で再生します。</li>
+    <li><strong>Save Image</strong> で現在の盤面を PNG 保存します。</li>
+    <li><strong>Save GIF</strong> で全操作を GIF 保存します。</li>
+  </ul>
+</div>
+<div>
+  Seed: <input id="seed" type="number" value="0">
+</div>
+<div>
+  <h3>Input</h3>
+  <textarea id="input"></textarea>
+</div>
+<div>
+  <h3>Output</h3>
+  <textarea id="output"></textarea>
+</div>
+<div>Score: <span id="score">0</span> <span id="error" style="color:red"></span></div>
+<div>Hand: <span id="sval">0</span> Pos: <span id="pos">(0,0)</span> Operation: <span id="op">-</span></div>
+<div>
+  Step: <input type="range" id="step" value="0" min="0" max="0">
+  <input type="number" id="stepNum" value="0" min="0" max="0" style="width:60px;">
+  <span id="stepLabel">0/0</span>
+  <button id="playBtn">Play</button>
+  Speed(ms): <input id="speed" type="number" value="10" min="1" step="1" style="width:70px;">
+  <button id="imgBtn">Save Image</button>
+  <button id="gifBtn">Save GIF</button>
+</div>
+<table id="board"></table>
+<script>
+(function(){
+  const N = 10;
+  const T = 1000;
+
+  function seedRng(seed){
+    let x = BigInt(seed) + 1n;
+    return function(){
+      x ^= x << 13n;
+      x ^= x >> 7n;
+      x ^= x << 17n;
+      return Number(x & 0xffffffffn) / 0x100000000;
+    };
+  }
+
+  function generateInput(seed){
+    const rand = seedRng(seed);
+    let lines = [`${N} ${T}`];
+    for(let i=0;i<N;i++){
+      let row=[];
+      for(let j=0;j<N;j++){
+        row.push(Math.floor(rand()*Math.pow(2,20)));
+      }
+      lines.push(row.join(' '));
+    }
+    return lines.join('\n');
+  }
+
+  function parseInput(text){
+    const nums = text.trim().split(/\s+/).map(Number);
+    const n = nums.shift();
+    const t = nums.shift();
+    const board=[];
+    for(let i=0;i<n;i++){
+      board.push(nums.slice(i*n,(i+1)*n));
+    }
+    return {n,t,board};
+  }
+
+  function parseOutput(text){
+    return text.trim().split(/\s+/).filter(t=>t.length>0);
+  }
+
+  function run(input, ops){
+    if(ops.length > input.t){
+      return {history:[input.board.map(r=>r.slice())], posHistory:[[0,0]], sHistory:[0], opHistory:['-'], error:`Operation count exceeds limit`};
+    }
+    let board = input.board.map(r=>r.slice());
+    let x=0, y=0, s=0;
+    const history=[board.map(r=>r.slice())];
+    const posHistory=[[x,y]];
+    const sHistory=[s];
+    const opHistory=['-'];
+    for(let step=0; step<ops.length; step++){
+      const op = ops[step];
+      switch(op){
+        case 'U':
+          if(x>0) x--; else return {error:`Move out of board at step ${step}` ,history,posHistory,sHistory,opHistory};
+          break;
+        case 'D':
+          if(x+1<input.n) x++; else return {error:`Move out of board at step ${step}` ,history,posHistory,sHistory,opHistory};
+          break;
+        case 'L':
+          if(y>0) y--; else return {error:`Move out of board at step ${step}` ,history,posHistory,sHistory,opHistory};
+          break;
+        case 'R':
+          if(y+1<input.n) y++; else return {error:`Move out of board at step ${step}` ,history,posHistory,sHistory,opHistory};
+          break;
+        case 'W':
+          board[x][y]^=s;
+          break;
+        case 'C':
+          s^=board[x][y];
+          break;
+        default:
+          return {error:`Invalid operation '${op}' at step ${step}` ,history,posHistory,sHistory,opHistory};
+      }
+      history.push(board.map(r=>r.slice()));
+      posHistory.push([x,y]);
+      sHistory.push(s);
+      opHistory.push(op);
+    }
+    return {history,posHistory,sHistory,opHistory};
+  }
+
+  function sum(board){
+    return board.reduce((acc,r)=>acc+r.reduce((a,b)=>a+b,0),0);
+  }
+
+  function color(val){
+    const log2 = (x) => Math.log(x) / Math.log(2);
+    const limit = Math.pow(2,19);
+    let r;
+    let hue;
+    if (val >= limit) {
+      r = Math.pow(log2(Math.pow(2,20) - val) / 19, 2);
+      if (r < 0) r = 0;
+      if (r > 1) r = 1;
+      hue = r * 120; // red -> green
+    } else {
+      r = Math.pow(log2(val + 1) / 19, 2);
+      if (r < 0) r = 0;
+      if (r > 1) r = 1;
+      hue = 240 - r * 120; // blue -> green
+    }
+    return `hsl(${hue},100%,70%)`;
+  }
+
+  function draw(board, pos, sval, op){
+    const table = document.getElementById('board');
+    if(!table.firstChild){
+      for(let i=0;i<N;i++){
+        const tr=document.createElement('tr');
+        for(let j=0;j<N;j++){
+          const td=document.createElement('td');
+          tr.appendChild(td);
+        }
+        table.appendChild(tr);
+      }
+    }
+    for(let i=0;i<N;i++){
+      for(let j=0;j<N;j++){
+        table.rows[i].cells[j].classList.remove('current');
+      }
+    }
+    for(let i=0;i<N;i++){
+      for(let j=0;j<N;j++){
+        const td=table.rows[i].cells[j];
+        const v=board[i][j];
+        td.textContent=v;
+        td.style.background=color(v);
+      }
+    }
+    if(pos){
+      table.rows[pos[0]].cells[pos[1]].classList.add('current');
+    }
+    document.getElementById('score').textContent = sum(board);
+    document.getElementById('sval').textContent = sval;
+    document.getElementById('pos').textContent = `(${pos[0]},${pos[1]})`;
+    document.getElementById('op').textContent = op || '-';
+  }
+
+  let timer=null;
+  let history=[],posHistory=[],sHistory=[],opHistory=[];
+
+  function updateInput(){
+    const seed=document.getElementById('seed').value;
+    document.getElementById('input').value=generateInput(seed);
+    updateVis();
+  }
+
+  function updateVis(){
+    const input=parseInput(document.getElementById('input').value);
+    const ops=parseOutput(document.getElementById('output').value);
+    const res=run(input,ops);
+    history=res.history; posHistory=res.posHistory; sHistory=res.sHistory; opHistory=res.opHistory;
+    step.max=history.length-1;
+    stepNum.max=history.length-1;
+    step.value=0;
+    stepNum.value=0;
+    document.getElementById('stepLabel').textContent=`0/${history.length-1}`;
+    draw(history[0],posHistory[0],sHistory[0],opHistory[0]);
+    document.getElementById('error').textContent = res.error || '';
+  }
+
+  const step=document.getElementById('step');
+  const stepNum=document.getElementById('stepNum');
+
+  document.getElementById('seed').oninput=updateInput;
+  document.getElementById('output').oninput=updateVis;
+  document.getElementById('input').oninput=updateVis;
+  updateInput();
+  step.oninput=function(){
+    const idx=parseInt(step.value,10);
+    stepNum.value=idx;
+    document.getElementById('stepLabel').textContent=`${idx}/${history.length-1}`;
+    draw(history[idx],posHistory[idx],sHistory[idx],opHistory[idx]);
+  };
+  stepNum.oninput=function(){
+    let idx=parseInt(stepNum.value,10);
+    if(isNaN(idx)) idx=0;
+    if(idx<0) idx=0;
+    if(idx>history.length-1) idx=history.length-1;
+    stepNum.value=idx;
+    step.value=idx;
+    step.dispatchEvent(new Event('input'));
+  };
+
+  document.getElementById('playBtn').onclick=function(){
+    const speed=parseInt(document.getElementById('speed').value,10);
+    if(timer){clearInterval(timer);timer=null;this.textContent='Play';return;}
+    let idx=parseInt(step.value,10);
+    this.textContent='Pause';
+    timer=setInterval(()=>{
+      if(idx+1>=history.length){
+        clearInterval(timer);
+        timer=null;
+        this.textContent='Play';
+        return;
+      }
+      idx++;
+      step.value=idx;
+      step.dispatchEvent(new Event('input'));
+    },speed);
+  };
+
+  document.getElementById('imgBtn').onclick=function(){
+    html2canvas(document.getElementById('board')).then(canvas=>{
+      const link=document.createElement('a');
+      link.href=canvas.toDataURL('image/png');
+      link.download='board.png';
+      link.click();
+    });
+  };
+
+  document.getElementById('gifBtn').onclick=function(){
+    const gif=new GIF({
+      workers:2,
+      quality:10,
+      workerScript:'https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js'
+    });
+    let idx=0;
+    const add=()=>{
+      draw(history[idx],posHistory[idx],sHistory[idx],opHistory[idx]);
+      html2canvas(document.getElementById('board')).then(canvas=>{
+        gif.addFrame(canvas,{delay:parseInt(document.getElementById('speed').value,10)});
+        idx++;
+        if(idx<history.length){add();}else{
+          gif.on('finished',blob=>{
+            const url=URL.createObjectURL(blob);
+            const link=document.createElement('a');
+            link.href=url;
+            link.download='board.gif';
+            link.click();
+            URL.revokeObjectURL(url);
+            step.dispatchEvent(new Event('input'));
+          });
+          gif.render();
+        }
+      });
+    };
+    add();
+  };
+})();
+</script>
+</body>
+</html>

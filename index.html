@@ -10,8 +10,7 @@
   td { width: 80px; height: 80px; text-align: center; border: 1px solid #ccc; font-size: 14px; }
   .current { outline: 2px solid red; }
 </style>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
 <body>
 <h1>XOR Printer ビジュアライザ</h1>
@@ -24,7 +23,6 @@
     <li>スライダーや数値欄でステップを進められます。</li>
     <li><strong>Play</strong> で指定した <strong>Speed</strong> で再生します。</li>
     <li><strong>Save Image</strong> で現在の盤面を PNG 保存します。</li>
-    <li><strong>Save GIF</strong> で全操作を GIF 保存します。</li>
   </ul>
 </div>
 <div>
@@ -47,13 +45,14 @@
   <button id="playBtn">Play</button>
   Speed(ms): <input id="speed" type="number" value="10" min="1" step="1" style="width:70px;">
   <button id="imgBtn">Save Image</button>
-  <button id="gifBtn">Save GIF</button>
 </div>
 <table id="board"></table>
 <script>
 (function(){
-  const N = 10;
+  const DEFAULT_N = 10;
+  let N = DEFAULT_N;
   const T = 1000;
+  const TABLE_SIZE = 800;
 
   function seedRng(seed){
     let x = BigInt(seed) + 1n;
@@ -67,10 +66,10 @@
 
   function generateInput(seed){
     const rand = seedRng(seed);
-    let lines = [`${N} ${T}`];
-    for(let i=0;i<N;i++){
+    let lines = [`${DEFAULT_N} ${T}`];
+    for(let i=0;i<DEFAULT_N;i++){
       let row=[];
-      for(let j=0;j<N;j++){
+      for(let j=0;j<DEFAULT_N;j++){
         row.push(Math.floor(rand()*Math.pow(2,20)));
       }
       lines.push(row.join(' '));
@@ -79,9 +78,13 @@
   }
 
   function parseInput(text){
-    const nums = text.trim().split(/\s+/).map(Number);
+    const tokens = text.trim().split(/\s+/);
+    if(tokens.some(t=>!/^\d+$/.test(t))) throw new Error('Invalid characters in input');
+    const nums = tokens.map(Number);
+    if(nums.length < 2) throw new Error('Input is too short');
     const n = nums.shift();
     const t = nums.shift();
+    if(nums.length !== n*n) throw new Error('N and board size mismatch');
     const board=[];
     for(let i=0;i<n;i++){
       board.push(nums.slice(i*n,(i+1)*n));
@@ -90,7 +93,12 @@
   }
 
   function parseOutput(text){
-    return text.trim().split(/\s+/).filter(t=>t.length>0);
+    const ops=text.trim().split(/\s+/).filter(t=>t.length>0);
+    const valid=new Set(['U','D','L','R','W','C']);
+    for(const op of ops){
+      if(!valid.has(op)) throw new Error(`Invalid operation '${op}'`);
+    }
+    return ops;
   }
 
   function run(input, ops){
@@ -160,23 +168,41 @@
 
   function draw(board, pos, sval, op){
     const table = document.getElementById('board');
-    if(!table.firstChild){
-      for(let i=0;i<N;i++){
-        const tr=document.createElement('tr');
-        for(let j=0;j<N;j++){
-          const td=document.createElement('td');
-          tr.appendChild(td);
-        }
-        table.appendChild(tr);
+    const n = board.length;
+    while(table.rows.length < n){
+      const tr=document.createElement('tr');
+      for(let j=0;j<n;j++){
+        tr.appendChild(document.createElement('td'));
+      }
+      table.appendChild(tr);
+    }
+    while(table.rows.length > n){
+      table.deleteRow(-1);
+    }
+    for(let i=0;i<n;i++){
+      const row=table.rows[i];
+      while(row.cells.length < n){
+        row.appendChild(document.createElement('td'));
+      }
+      while(row.cells.length > n){
+        row.deleteCell(-1);
       }
     }
-    for(let i=0;i<N;i++){
-      for(let j=0;j<N;j++){
+    const cellSize = TABLE_SIZE / n;
+    for(let i=0;i<n;i++){
+      for(let j=0;j<n;j++){
+        const cell=table.rows[i].cells[j];
+        cell.style.width = cellSize + 'px';
+        cell.style.height = cellSize + 'px';
+      }
+    }
+    for(let i=0;i<n;i++){
+      for(let j=0;j<n;j++){
         table.rows[i].cells[j].classList.remove('current');
       }
     }
-    for(let i=0;i<N;i++){
-      for(let j=0;j<N;j++){
+    for(let i=0;i<n;i++){
+      for(let j=0;j<n;j++){
         const td=table.rows[i].cells[j];
         const v=board[i][j];
         td.textContent=v;
@@ -202,17 +228,22 @@
   }
 
   function updateVis(){
-    const input=parseInput(document.getElementById('input').value);
-    const ops=parseOutput(document.getElementById('output').value);
-    const res=run(input,ops);
-    history=res.history; posHistory=res.posHistory; sHistory=res.sHistory; opHistory=res.opHistory;
-    step.max=history.length-1;
-    stepNum.max=history.length-1;
-    step.value=0;
-    stepNum.value=0;
-    document.getElementById('stepLabel').textContent=`0/${history.length-1}`;
-    draw(history[0],posHistory[0],sHistory[0],opHistory[0]);
-    document.getElementById('error').textContent = res.error || '';
+    try{
+      const input=parseInput(document.getElementById('input').value);
+      N=input.n;
+      const ops=parseOutput(document.getElementById('output').value);
+      const res=run(input,ops);
+      history=res.history; posHistory=res.posHistory; sHistory=res.sHistory; opHistory=res.opHistory;
+      step.max=history.length-1;
+      stepNum.max=history.length-1;
+      step.value=0;
+      stepNum.value=0;
+      document.getElementById('stepLabel').textContent=`0/${history.length-1}`;
+      draw(history[0],posHistory[0],sHistory[0],opHistory[0]);
+      document.getElementById('error').textContent = res.error || '';
+    }catch(e){
+      document.getElementById('error').textContent = e.message;
+    }
   }
 
   const step=document.getElementById('step');
@@ -265,34 +296,6 @@
     });
   };
 
-  document.getElementById('gifBtn').onclick=function(){
-    const gif=new GIF({
-      workers:2,
-      quality:10,
-      workerScript:'https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js'
-    });
-    let idx=0;
-    const add=()=>{
-      draw(history[idx],posHistory[idx],sHistory[idx],opHistory[idx]);
-      html2canvas(document.getElementById('board')).then(canvas=>{
-        gif.addFrame(canvas,{delay:parseInt(document.getElementById('speed').value,10)});
-        idx++;
-        if(idx<history.length){add();}else{
-          gif.on('finished',blob=>{
-            const url=URL.createObjectURL(blob);
-            const link=document.createElement('a');
-            link.href=url;
-            link.download='board.gif';
-            link.click();
-            URL.revokeObjectURL(url);
-            step.dispatchEvent(new Event('input'));
-          });
-          gif.render();
-        }
-      });
-    };
-    add();
-  };
 })();
 </script>
 </body>

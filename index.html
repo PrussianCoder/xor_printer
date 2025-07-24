@@ -9,50 +9,72 @@
   table { border-collapse: collapse; margin-top: 10px; table-layout: fixed; width: 800px; height: 800px; }
   td { width: 80px; height: 80px; text-align: center; border: 1px solid #ccc; font-size: 14px; }
   .current { outline: 2px solid red; }
+  #gifProgress {
+    color: #000;
+    margin-left: 10px;
+    font-size: 14px;
+    vertical-align: middle;
+  }
 </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
+  <!-- Add html2canvas for PNG export -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 </head>
 <body>
-<h1>XOR Printer ビジュアライザ</h1>
-<div>
-  <h2>使い方</h2>
-  <ul>
-    <li><strong>Seed</strong> を変更するとランダムな盤面を生成できます。</li>
-    <li>必要に応じて問題インスタンスを <strong>Input</strong> 欄に貼り付けます。</li>
-    <li>ソルバーの出力を <strong>Output</strong> 欄に貼り付けます。</li>
-    <li>スライダーや数値欄でステップを進められます。</li>
-    <li><strong>Play</strong> で指定した <strong>Speed</strong> で再生します。</li>
-    <li><strong>Save Image</strong> で現在の盤面を PNG 保存します。</li>
-  </ul>
-</div>
+<h2>XOR Printer ビジュアライザ</h2>
+<details>
+  <summary>使い方</summary>
+  <div>
+    <ul>
+      <li>Seed 欄の値を変えると対応する入力が Input 欄に生成されます。</li>
+      <li>生成された入力に対して解答プログラムをローカル実行し、プログラムの出力を Output 欄に貼り付けると、ビジュアライズ結果が表示されます。</li>
+      <li>Play ボタンを押すと、アニメーションが開始します。</li>
+      <li>Save as PNG ボタンを押すと、ビジュアライズ結果のダウンロードが出来ます。</li>
+      <li>Manual mode を ON にすると矢印キーや <code>W</code>/<code>C</code>、<code>Backspace</code> で Output を編集できます。</li>
+    </ul>
+  </div>
+</details>
+<hr>
 <div>
   Seed: <input id="seed" type="number" value="0">
 </div>
 <div>
-  <h3>Input</h3>
+  <p>Input</p>
   <textarea id="input"></textarea>
 </div>
 <div>
-  <h3>Output</h3>
+  <p>Output <label><input type="checkbox" id="manual"> Manual mode</label></p>
   <textarea id="output"></textarea>
 </div>
+<div>
+  <button id="playBtn">Play</button>
+  slow <input id="speed" type="range" value="100" min="1" max="200"> fast
+  turn <input type="number" id="stepNum" value="0" min="0" max="0" style="width:60px;">
+</div>
+<br>
+<div>
+  <input type="range" id="step" value="0" min="0" max="0" style="width: 600px;">
+</div>
+  <div>
+  <button id="imgBtn">Save Image</button>
+  <button id="gifBtn">Save GIF</button>
+  <span id="gifProgress"></span>
+  </div>
+<hr>
 <div>Score: <span id="score">0</span> <span id="error" style="color:red"></span></div>
 <div>Hand: <span id="sval">0</span> Pos: <span id="pos">(0,0)</span> Operation: <span id="op">-</span></div>
-<div>
-  Step: <input type="range" id="step" value="0" min="0" max="0">
-  <input type="number" id="stepNum" value="0" min="0" max="0" style="width:60px;">
-  <span id="stepLabel">0/0</span>
-  <button id="playBtn">Play</button>
-  Speed(ms): <input id="speed" type="number" value="10" min="1" step="1" style="width:70px;">
-  <button id="imgBtn">Save Image</button>
-</div>
 <table id="board"></table>
+<!-- hiddenCanvasのサイズをGIF用に小さくするため、width/heightを400に変更 -->
+<canvas id="hiddenCanvas" width="800" height="800" style="display:none;"></canvas>
 <script>
 (function(){
   const DEFAULT_N = 10;
   let N = DEFAULT_N;
   const T = 1000;
   const TABLE_SIZE = 800;
+
+  // GIF用の小さいサイズ
+  const GIF_CANVAS_SIZE = 800;
 
   function seedRng(seed){
     let x = BigInt(seed) + 1n;
@@ -218,8 +240,62 @@
     document.getElementById('op').textContent = op || '-';
   }
 
+  // Use willReadFrequently: true for CanvasRenderingContext2D where repeated readbacks may occur
+  function get2DContextWithWillReadFrequently(canvas) {
+    // Try to get context with willReadFrequently if supported
+    try {
+      return canvas.getContext('2d', { willReadFrequently: true }) || canvas.getContext('2d');
+    } catch (e) {
+      return canvas.getContext('2d');
+    }
+  }
+
+  // 盤面のcanvas描画（PNG/画面用: 通常サイズ, GIF用: 小さい数字・小さいサイズ）
+  function drawCanvas(board, pos, forGif){
+    const canvas=document.getElementById('hiddenCanvas');
+    const n=board.length;
+    // GIF用ならcanvasサイズを小さく
+    if(forGif){
+      if(canvas.width !== GIF_CANVAS_SIZE || canvas.height !== GIF_CANVAS_SIZE){
+        canvas.width = GIF_CANVAS_SIZE;
+        canvas.height = GIF_CANVAS_SIZE;
+      }
+    }else{
+      if(canvas.width !== TABLE_SIZE || canvas.height !== TABLE_SIZE){
+        canvas.width = TABLE_SIZE;
+        canvas.height = TABLE_SIZE;
+      }
+    }
+    // Use willReadFrequently: true for better performance on repeated readbacks
+    const ctx=get2DContextWithWillReadFrequently(canvas);
+    const cellSize=(forGif ? GIF_CANVAS_SIZE : TABLE_SIZE)/n;
+    ctx.clearRect(0,0,canvas.width,canvas.height);
+    // 数字のサイズをforGifなら小さくする
+    let fontScale = forGif ? 0.2 : 0.3;
+    ctx.font=`${Math.floor(cellSize*fontScale)}px sans-serif`;
+    ctx.textAlign='center';
+    ctx.textBaseline='middle';
+    for(let i=0;i<n;i++){
+      for(let j=0;j<n;j++){
+        const v=board[i][j];
+        ctx.fillStyle=color(v);
+        ctx.fillRect(j*cellSize,i*cellSize,cellSize,cellSize);
+        ctx.strokeStyle='#ccc';
+        ctx.strokeRect(j*cellSize,i*cellSize,cellSize,cellSize);
+        ctx.fillStyle='#000';
+        ctx.fillText(v.toString(),j*cellSize+cellSize/2,i*cellSize+cellSize/2);
+      }
+    }
+    if(pos){
+      ctx.strokeStyle='red';
+      ctx.lineWidth=2;
+      ctx.strokeRect(pos[1]*cellSize,pos[0]*cellSize,cellSize,cellSize);
+    }
+  }
+
   let timer=null;
   let history=[],posHistory=[],sHistory=[],opHistory=[];
+  let currentInput=null;
 
   function updateInput(){
     const seed=document.getElementById('seed').value;
@@ -230,6 +306,7 @@
   function updateVis(){
     try{
       const input=parseInput(document.getElementById('input').value);
+      currentInput = input;
       N=input.n;
       const ops=parseOutput(document.getElementById('output').value);
       const res=run(input,ops);
@@ -238,7 +315,6 @@
       stepNum.max=history.length-1;
       step.value=0;
       stepNum.value=0;
-      document.getElementById('stepLabel').textContent=`0/${history.length-1}`;
       draw(history[0],posHistory[0],sHistory[0],opHistory[0]);
       document.getElementById('error').textContent = res.error || '';
     }catch(e){
@@ -248,7 +324,8 @@
 
   const step=document.getElementById('step');
   const stepNum=document.getElementById('stepNum');
-
+  const manual=document.getElementById('manual');
+  const speed=document.getElementById('speed');
   document.getElementById('seed').oninput=updateInput;
   document.getElementById('output').oninput=updateVis;
   document.getElementById('input').oninput=updateVis;
@@ -256,7 +333,7 @@
   step.oninput=function(){
     const idx=parseInt(step.value,10);
     stepNum.value=idx;
-    document.getElementById('stepLabel').textContent=`${idx}/${history.length-1}`;
+    // document.getElementById('stepLabel').textContent=`${idx}/${history.length-1}`;
     draw(history[idx],posHistory[idx],sHistory[idx],opHistory[idx]);
   };
   stepNum.oninput=function(){
@@ -269,8 +346,61 @@
     step.dispatchEvent(new Event('input'));
   };
 
+  function showLast(){
+    const idx=history.length-1;
+    step.value=idx;
+    stepNum.value=idx;
+    step.dispatchEvent(new Event('input'));
+  }
+
+  function appendOp(op){
+    const out=document.getElementById('output');
+    if(currentInput){
+      const ops=parseOutput(out.value);
+      if(ops.length >= currentInput.t) return;
+    }
+    const txt=out.value.trim();
+    out.value = txt ? txt + '\n' + op : op;
+    updateVis();
+    showLast();
+  }
+
+  function removeLastOp(){
+    const out=document.getElementById('output');
+    const ops=parseOutput(out.value);
+    if(ops.length===0) return;
+    ops.pop();
+    out.value=ops.join('\n');
+    updateVis();
+    showLast();
+  }
+
+  document.addEventListener('keydown',e=>{
+    if(!manual.checked) return;
+    let op=null;
+    switch(e.key){
+      case 'ArrowUp': op='U'; break;
+      case 'ArrowDown': op='D'; break;
+      case 'ArrowLeft': op='L'; break;
+      case 'ArrowRight': op='R'; break;
+      case 'w':
+      case 'W': op='W'; break;
+      case 'c':
+      case 'C': op='C'; break;
+      case 'Backspace':
+        removeLastOp();
+        e.preventDefault();
+        return;
+      default:
+        return;
+    }
+    appendOp(op);
+    e.preventDefault();
+  });
+
   document.getElementById('playBtn').onclick=function(){
-    const speed=parseInt(document.getElementById('speed').value,10);
+    const fps=parseInt(speed.value,10);
+    const interval=Math.floor(1000 / fps);
     if(timer){clearInterval(timer);timer=null;this.textContent='Play';return;}
     let idx=parseInt(step.value,10);
     this.textContent='Pause';
@@ -284,16 +414,89 @@
       idx++;
       step.value=idx;
       step.dispatchEvent(new Event('input'));
-    },speed);
+    },interval);
   };
 
   document.getElementById('imgBtn').onclick=function(){
-    html2canvas(document.getElementById('board')).then(canvas=>{
-      const link=document.createElement('a');
-      link.href=canvas.toDataURL('image/png');
-      link.download='board.png';
-      link.click();
+    // Instead of html2canvas, use the hiddenCanvas for PNG export
+    // Draw the current board state to the hiddenCanvas, then export as PNG
+    // Use the current step index
+    let idx = parseInt(document.getElementById('step').value, 10);
+    if (isNaN(idx) || idx < 0 || idx >= history.length) idx = 0;
+    drawCanvas(history[idx], posHistory[idx], true);
+    const canvas = document.getElementById('hiddenCanvas');
+    const link = document.createElement('a');
+    link.href = canvas.toDataURL('image/png');
+    link.download = 'board.png';
+    link.click();
+  };
+
+  // 修正: GIF出力時に最後の盤面だけの静止画にならないように修正
+  document.getElementById('gifBtn').onclick = function(){
+    // 進捗表示用span
+    var gifProgressSpan = document.getElementById('gifProgress');
+    if (gifProgressSpan) gifProgressSpan.textContent = '';
+    const gif = new GIF({
+      workers: 100,
+      workerScript: 'gif_worker.js',
+      quality: 20,
+      repeat: 0 // 0: infinite loop, -1: no loop
     });
+    // repeat: -1 でループしない
+    gif.options.repeat = -1;
+    const delay = Math.floor(1000 / parseInt(speed.value,10));
+    const canvas = document.getElementById('hiddenCanvas');
+    // GIF.jsの仕様で、addFrameで同じcanvasを使い回すと最後の状態しか記録されないことがあるため、
+    // 各フレームごとに新しいImageDataを作成してaddFrameする
+    for(let idx=0; idx<history.length; idx++){
+      // 10ターンおき、かつ最初と最後は必ず出力
+      if(idx % 10 !== 0 && idx !== 0 && idx !== history.length-1) continue;
+      // forGif=trueで数字を小さく、かつcanvasサイズも小さく
+      drawCanvas(history[idx], posHistory[idx], true);
+      // 新しいcanvasを作成してコピー（GIF用の小さいサイズで）
+      const tempCanvas = document.createElement('canvas');
+      tempCanvas.width = GIF_CANVAS_SIZE;
+      tempCanvas.height = GIF_CANVAS_SIZE;
+      // Use willReadFrequently: true for tempCtx as well
+      const tempCtx = get2DContextWithWillReadFrequently(tempCanvas);
+      tempCtx.drawImage(canvas, 0, 0, GIF_CANVAS_SIZE, GIF_CANVAS_SIZE);
+      gif.addFrame(tempCanvas, {delay});
+    }
+    gif.on('progress', function(p) {
+      // p: 0.0 ~ 1.0
+      const percent = Math.floor(p * 100);
+      if (gifProgressSpan) {
+        gifProgressSpan.textContent = `GIF生成中: ${percent}%`;
+      }
+      // console.log(`GIF生成中: ${percent}%`);
+    });
+    
+    gif.on('finished', function(blob) {
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = 'board.gif';
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      if (gifProgressSpan) {
+        gifProgressSpan.textContent = 'GIF生成完了: 100%';
+        setTimeout(() => { gifProgressSpan.textContent = ''; }, 2000);
+      }
+      // console.log('GIF生成完了: 100%');
+    });
+    gif.render({willReadFrequently: true});
+    // GIF用canvasサイズを元に戻す
+    setTimeout(() => {
+      const c = document.getElementById('hiddenCanvas');
+      c.width = TABLE_SIZE;
+      c.height = TABLE_SIZE;
+    }, 100);
+  };
+
+  // 画面表示やPNG保存用は数字大きめ
+  // 既存のdrawCanvas呼び出しを修正
+  window.drawCanvas = function(board, pos){
+    drawCanvas(board, pos, false);
   };
 
 })();

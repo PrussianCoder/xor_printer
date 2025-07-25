@@ -108,6 +108,12 @@ esac
 echo "=== Running test cases: ${test_cases[*]} ==="
 echo
 
+# outディレクトリが存在しない場合は作成
+if [ ! -d "out" ]; then
+    echo "Creating out directory..."
+    mkdir -p out
+fi
+
 # テストケース実行
 for i in "${test_cases[@]}"; do
     # 4桁の0埋め形式にフォーマット

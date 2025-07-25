@@ -32,4 +32,4 @@ xor_printer/
 
 こちらからも閲覧できます：[リンク](https://prussiancoder.github.io/xor_printer/)
 
-使い方は、「使い方」を参照してください。
+使い方はビジュアライザ内の「使い方」を参照してください。

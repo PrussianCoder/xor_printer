@@ -11,7 +11,6 @@ xor_printer/
 │   ├── seeds.txt       # 問題生成用のシード値
 │   ├── run_tests.sh    # マルチテストケース実行スクリプト
 │   └── in/             # 生成された問題インスタンス（100個）
-
 ├── index.html          # ビジュアライザー（Webアプリ）
 └── README.md
 ```

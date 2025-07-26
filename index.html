@@ -38,7 +38,7 @@
 </details>
 <hr>
 <div>
-  Seed: <input id="seed" type="number" value="0">
+  Seed: <input id="seed" type="number" value="0" min="0" step="1" oninput="this.value = this.value.replace(/[^0-9]/g, ''); if(this.value===''){this.value=0;}">
 </div>
 <div>
   <p>Input</p>
@@ -298,9 +298,18 @@
   let timer=null;
   let history=[],posHistory=[],sHistory=[],opHistory=[];
   let currentInput=null;
+  let lastError = ""; // 追加: 直近のエラー内容を保持
 
   function updateInput(){
-    const seed=document.getElementById('seed').value;
+    // Ensure seed is a non-negative integer
+    const seedInput = document.getElementById('seed');
+    let seed = seedInput.value;
+    // Remove non-digit characters
+    seed = seed.replace(/[^0-9]/g, '');
+    if (seed === '' || isNaN(seed)) seed = '0';
+    // Convert to integer and clamp to >= 0
+    seed = Math.max(0, parseInt(seed, 10) || 0);
+    seedInput.value = seed;
     document.getElementById('input').value=generateInput(seed);
     updateVis();
   }
@@ -319,8 +328,10 @@
       stepNum.value=0;
       draw(history[0],posHistory[0],sHistory[0],opHistory[0]);
       document.getElementById('error').textContent = res.error || '';
+      lastError = res.error || ""; // 追加: エラー内容を保存
     }catch(e){
       document.getElementById('error').textContent = e.message;
+      lastError = e.message; // 追加: エラー内容を保存
     }
   }
 
@@ -377,8 +388,18 @@
     showLast();
   }
 
+  // --- ここから修正: マニュアルモード時、エラー時はbackspace以外無効 ---
   document.addEventListener('keydown',e=>{
     if(!manual.checked) return;
+    // エラー時はbackspace以外無効
+    if (lastError && lastError.length > 0) {
+      if (e.key === 'Backspace') {
+        removeLastOp();
+        e.preventDefault();
+      }
+      // それ以外は何もしない
+      return;
+    }
     let op=null;
     switch(e.key){
       case 'ArrowUp': op='U'; break;
@@ -399,6 +420,7 @@
     appendOp(op);
     e.preventDefault();
   });
+  // --- ここまで修正 ---
 
   document.getElementById('playBtn').onclick=function(){
     const fps=parseInt(speed.value,10);

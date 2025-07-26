@@ -33,3 +33,7 @@ xor_printer/
 こちらからも閲覧できます：[リンク](https://prussiancoder.github.io/xor_printer/)
 
 使い方はビジュアライザ内の「使い方」を参照してください。
+
+## 動作確認済み環境
+- macOS 14.3.0 (Sonoma) + Apple clang version 16.0.0 (clang-1600.0.26.6)
+- Python 3.11

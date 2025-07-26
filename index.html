@@ -64,7 +64,7 @@
   </div>
 <hr>
 <div>Score: <span id="score">0</span> <span id="error" style="color:red"></span></div>
-<div>Hand: <span id="sval">0</span> Pos: <span id="pos">(0,0)</span> Operation: <span id="op">-</span></div>
+<div>Hand: <span id="sval">0</span> Pos: <span id="pos">(1,1)</span> Operation: <span id="op">-</span></div>
 <table id="board"></table>
 <!-- hiddenCanvasのサイズをGIF用に小さくするため、width/heightを400に変更 -->
 <canvas id="hiddenCanvas" width="800" height="800" style="display:none;"></canvas>
@@ -238,7 +238,8 @@
     }
     document.getElementById('score').textContent = sum(board);
     document.getElementById('sval').textContent = sval;
-    document.getElementById('pos').textContent = `(${pos[0]},${pos[1]})`;
+    // ここで1-indexedに修正
+    document.getElementById('pos').textContent = `(${(pos[0]+1)},${(pos[1]+1)})`;
     document.getElementById('op').textContent = op || '-';
   }
 

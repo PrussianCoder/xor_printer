@@ -162,9 +162,6 @@ pair<int64_t, string> run(const Input& inp, const Output& out,
         case 'C':
             s ^= board[x][y];
             break;
-        case 'H':
-            s /= 2;
-            break;
         default:
             return {0, "Invalid operation"};
         }
